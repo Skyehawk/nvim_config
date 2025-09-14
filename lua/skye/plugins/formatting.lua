@@ -1,9 +1,8 @@
 return {
   "stevearc/conform.nvim",
-  event = { "BufReadPre", "BufNewFile" },  -- Lazy load , because we only need it in a buffer
+  event = { "BufReadPre", "BufNewFile" }, -- Lazy load , because we only need it in a buffer
   config = function()
     local conform = require("conform")
-
     conform.setup({
       formatters_by_ft = {
         javascript = { "prettier" },
@@ -22,6 +21,8 @@ return {
         python = { "isort", "black" },
         bash = { "beautysh" },
         rust = { "rustfmt" },
+        tex = { "latexindent" },
+        latex = { "latexindent" },
         -- no option for Julia currently, also need to edit mason.lua: https://github.com/stevearc/conform.nvim?tab=readme-ov-file#customizing-formatters
       },
       format_on_save = {
@@ -30,7 +31,6 @@ return {
         timeout_ms = 1000,
       },
     })
-
     vim.keymap.set({ "n", "v" }, "<leader>mp", function()
       conform.format({
         lsp_fallback = true,

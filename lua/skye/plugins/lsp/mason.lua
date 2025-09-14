@@ -1,8 +1,8 @@
 return {
   "williamboman/mason.nvim",
   dependencies = {
-    "williamboman/mason-lspconfig.nvim",  -- for installing language servers
-    "WhoIsSethDaniel/mason-tool-installer.nvim",  -- helpful for installing stuff that isn't language servers - such as formatters
+    "williamboman/mason-lspconfig.nvim", -- for installing language servers
+    "WhoIsSethDaniel/mason-tool-installer.nvim", -- helpful for installing stuff that isn't language servers - such as formatters
   },
   config = function()
     -- import mason
@@ -40,6 +40,7 @@ return {
         "julials",
         "rust_analyzer",
         "bashls",
+        "texlab",
       },
     })
 
@@ -54,6 +55,7 @@ return {
         "beautysh", -- bash formatter
         "shellcheck", -- bash linter
         "rustfmt", -- rust formatter
+        "latexindent",
         -- no formatter for  Julia, also need to edit formatting.lua
       },
     })
