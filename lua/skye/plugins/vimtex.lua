@@ -158,129 +158,146 @@ return {
       return vim.fn.expand("%:r") .. ".pdf"
     end
 
-    -- Simple citation picker function
-    local function pick_citation()
-      local bib_file = "/home/skye/Documents/bibliography.bib/library.bib"
-
-      -- Check if file exists
-      if vim.fn.filereadable(bib_file) == 0 then
-        vim.notify("Bibliography file not found: " .. bib_file, vim.log.levels.ERROR)
-        return
-      end
-
-      local citations = {}
-      local file = io.open(bib_file, "r")
-
-      if not file then
-        vim.notify("Cannot open bibliography file", vim.log.levels.ERROR)
-        return
-      end
-
-      -- Parse the bib file for citation keys and titles
-      local current_key = nil
-      local current_title = nil
-
-      for line in file:lines() do
-        -- Look for citation keys (@article{key,)
-        local key = line:match("^@%w+{([^,]+),")
-        if key then
-          current_key = key
-          current_title = nil
-        end
-
-        -- Look for titles
-        local title = line:match("title%s*=%s*{(.-)}")
-        if title and current_key then
-          current_title = title:gsub("^{", ""):gsub("}$", "") -- Remove extra braces
-          table.insert(citations, {
-            key = current_key,
-            title = current_title,
-            display = current_key .. " - " .. current_title,
-          })
-          current_key = nil
-          current_title = nil
-        end
-      end
-
-      file:close()
-
-      if #citations == 0 then
-        vim.notify("No citations found in bibliography file", vim.log.levels.WARN)
-        return
-      end
-
-      -- Use vim.ui.select for citation picking
-      vim.ui.select(citations, {
-        prompt = "Select citation (" .. #citations .. " available):",
-        format_item = function(item)
-          return item.display
-        end,
-      }, function(choice)
-        if choice then
-          -- Insert citation at cursor position
-          local citation = "\\cite{" .. choice.key .. "}"
-          vim.api.nvim_put({ citation }, "c", false, true)
-          vim.notify("Inserted: " .. citation, vim.log.levels.INFO)
-        end
-      end)
-    end
-
-    -- Enhanced citation picker that handles multiple bib files (groups)
+    -- Enhanced citation picker that handles multiple bib files with better search prioritization
     local function pick_citation_with_groups()
       local bib_base_path = "/home/skye/Documents/mendeley_groups/"
+      local fallback_file = "/home/skye/Documents/bibliography.bib/library.bib"
 
       -- Find all .bib files in the directory
       local bib_files = {}
       local handle = io.popen("find " .. bib_base_path .. " -name '*.bib' 2>/dev/null")
       if handle then
         for file in handle:lines() do
-          table.insert(bib_files, file)
+          if vim.fn.filereadable(file) == 1 then
+            table.insert(bib_files, file)
+          end
         end
         handle:close()
       end
 
-      -- Fallback to single file if no group files found
+      -- Add fallback file if it exists
+      if vim.fn.filereadable(fallback_file) == 1 then
+        table.insert(bib_files, fallback_file)
+      end
+
       if #bib_files == 0 then
-        bib_files = { "/home/skye/Documents/bibliography.bib/library.bib" }
+        vim.notify("No readable .bib files found in " .. bib_base_path .. " or " .. fallback_file, vim.log.levels.ERROR)
+        return
       end
 
       local all_citations = {}
 
       -- Parse each bib file
       for _, bib_file in ipairs(bib_files) do
-        if vim.fn.filereadable(bib_file) == 1 then
-          local file = io.open(bib_file, "r")
-          if file then
-            -- Extract group name from filename
-            local group_name = bib_file:match("([^/]+)%.bib$") or "Default"
-            group_name = group_name:gsub("_", " "):gsub("^%l", string.upper)
+        local file = io.open(bib_file, "r")
+        if file then
+          -- Extract group name from filename
+          local group_name = bib_file:match("([^/]+)%.bib$") or "Unknown"
+          group_name = group_name:gsub("_", " "):gsub("^%l", string.upper)
 
-            local current_key = nil
-            local current_title = nil
+          local current_key = nil
+          local current_title = nil
+          local current_author = nil
+          local current_year = nil
+          local current_keywords = nil
 
-            for line in file:lines() do
-              local key = line:match("^@%w+{([^,]+),")
-              if key then
-                current_key = key
-                current_title = nil
-              end
+          for line in file:lines() do
+            -- Look for citation keys
+            local key = line:match("^@%w+{([^,]+),")
+            if key then
+              if current_key and (current_title or current_author) then
+                -- Save previous entry with comprehensive search text
+                local search_components = {
+                  current_key,
+                  current_title or "",
+                  current_author or "",
+                  current_year or "",
+                  current_keywords or "",
+                  group_name,
+                }
 
-              local title = line:match("title%s*=%s*{(.-)}")
-              if title and current_key then
-                current_title = title:gsub("^{", ""):gsub("}$", "")
+                local display_info = current_title or current_author or "No title"
+                if current_year then
+                  display_info = display_info .. " (" .. current_year .. ")"
+                end
+
                 table.insert(all_citations, {
                   key = current_key,
-                  title = current_title,
+                  title = current_title or "No title",
+                  author = current_author or "No author",
+                  year = current_year or "",
+                  keywords = current_keywords or "",
                   group = group_name,
-                  display = "[" .. group_name .. "] " .. current_key .. " - " .. current_title,
+                  display = string.format("[%s] %s - %s", group_name, current_key, display_info),
+                  search_text = string.lower(table.concat(search_components, " ")),
                   sort_key = group_name .. "|" .. current_key,
                 })
-                current_key = nil
-                current_title = nil
               end
+              current_key = key
+              current_title = nil
+              current_author = nil
+              current_year = nil
+              current_keywords = nil
             end
-            file:close()
+
+            -- Look for titles
+            local title = line:match("title%s*=%s*{(.-)}")
+            if title and current_key then
+              current_title = title:gsub("^{+", ""):gsub("}+$", "")
+            end
+
+            -- Look for authors (as backup if no title)
+            local author = line:match("author%s*=%s*{(.-)}")
+            if author and current_key and not current_author then
+              current_author = author:gsub("^{+", ""):gsub("}+$", ""):match("^([^,]+)") -- Just first author
+            end
+
+            -- Look for year
+            local year = line:match("year%s*=%s*{?(%d%d%d%d)}?") or line:match("year%s*=%s*(%d%d%d%d)")
+            if year and current_key then
+              current_year = year
+            end
+
+            -- Look for keywords (can be on multiple lines, so we'll collect them)
+            local keywords = line:match("keywords%s*=%s*{(.-)}")
+            if keywords and current_key then
+              -- Clean up keywords: remove extra braces, split on common separators
+              keywords = keywords:gsub("^{+", ""):gsub("}+$", "")
+              keywords = keywords:gsub("[,;]", " ") -- Replace separators with spaces
+              current_keywords = keywords
+            end
           end
+
+          -- Don't forget the last entry
+          if current_key and (current_title or current_author) then
+            local search_components = {
+              current_key,
+              current_title or "",
+              current_author or "",
+              current_year or "",
+              current_keywords or "",
+              group_name,
+            }
+
+            local display_info = current_title or current_author or "No title"
+            if current_year then
+              display_info = display_info .. " (" .. current_year .. ")"
+            end
+
+            table.insert(all_citations, {
+              key = current_key,
+              title = current_title or "No title",
+              author = current_author or "No author",
+              year = current_year or "",
+              keywords = current_keywords or "",
+              group = group_name,
+              display = string.format("[%s] %s - %s", group_name, current_key, display_info),
+              search_text = string.lower(table.concat(search_components, " ")),
+              sort_key = group_name .. "|" .. current_key,
+            })
+          end
+
+          file:close()
         end
       end
 
@@ -289,17 +306,70 @@ return {
         return
       end
 
-      -- Sort by group, then by citation key
-      table.sort(all_citations, function(a, b)
-        return a.sort_key < b.sort_key
-      end)
+      -- Custom sorting function that prioritizes matches
+      local function sort_citations_by_relevance(citations, search_term)
+        if not search_term or search_term == "" then
+          -- Default sort by group, then by citation key
+          table.sort(citations, function(a, b)
+            return a.sort_key < b.sort_key
+          end)
+          return citations
+        end
 
-      -- Use vim.ui.select with group information
+        search_term = string.lower(search_term)
+
+        -- Score each citation based on match quality
+        for _, citation in ipairs(citations) do
+          local score = 0
+          local key_lower = string.lower(citation.key)
+          local title_lower = string.lower(citation.title)
+
+          -- Exact key match gets highest priority
+          if key_lower == search_term then
+            score = score + 1000
+          -- Key starts with search term
+          elseif key_lower:sub(1, #search_term) == search_term then
+            score = score + 500
+          -- Key contains search term
+          elseif key_lower:find(search_term, 1, true) then
+            score = score + 100
+          end
+
+          -- Title exact match
+          if title_lower:find(search_term, 1, true) then
+            score = score + 50
+          end
+
+          -- Penalize longer distances from start
+          local key_pos = key_lower:find(search_term, 1, true)
+          if key_pos then
+            score = score + (20 - key_pos) -- Closer to start = higher score
+          end
+
+          citation.relevance_score = score
+        end
+
+        -- Sort by relevance score (descending), then by original sort key
+        table.sort(citations, function(a, b)
+          if a.relevance_score ~= b.relevance_score then
+            return a.relevance_score > b.relevance_score
+          end
+          return a.sort_key < b.sort_key
+        end)
+
+        return citations
+      end
+
+      -- Sort initially by default order
+      sort_citations_by_relevance(all_citations, nil)
+
+      -- Use vim.ui.select with improved sorting
       vim.ui.select(all_citations, {
-        prompt = "Select citation (" .. #all_citations .. " from " .. #bib_files .. " groups):",
+        prompt = string.format("Select citation (%d from %d groups):", #all_citations, #bib_files),
         format_item = function(item)
           return item.display
         end,
+        -- Note: Some fuzzy finders might override this, but we've pre-sorted for better results
       }, function(choice)
         if choice then
           local citation = "\\cite{" .. choice.key .. "}"
@@ -309,48 +379,65 @@ return {
       end)
     end
 
-    -- Group selection first, then citation
+    -- Group selection first, then citation with navigation
     local function pick_citation_by_group()
       local bib_base_path = "/home/skye/Documents/mendeley_groups/"
+      local fallback_file = "/home/skye/Documents/bibliography.bib/library.bib"
 
-      -- Find all .bib files
-      local bib_files = {}
-      local handle = io.popen("find " .. bib_base_path .. " -name '*.bib' 2>/dev/null")
-      if handle then
-        for file in handle:lines() do
-          local group_name = file:match("([^/]+)%.bib$")
-          if group_name then
-            table.insert(bib_files, {
-              path = file,
-              name = group_name:gsub("_", " "):gsub("^%l", string.upper),
-              display = group_name:gsub("_", " "):gsub("^%l", string.upper),
-            })
+      -- Forward declare the functions so they can call each other
+      local show_group_selection
+      local show_citations_from_group
+
+      show_group_selection = function()
+        -- Find all .bib files
+        local bib_files = {}
+        local handle = io.popen("find " .. bib_base_path .. " -name '*.bib' 2>/dev/null")
+        if handle then
+          for file in handle:lines() do
+            if vim.fn.filereadable(file) == 1 then
+              local group_name = file:match("([^/]+)%.bib$")
+              if group_name then
+                table.insert(bib_files, {
+                  path = file,
+                  name = group_name:gsub("_", " "):gsub("^%l", string.upper),
+                  display = group_name:gsub("_", " "):gsub("^%l", string.upper),
+                })
+              end
+            end
           end
+          handle:close()
         end
-        handle:close()
-      end
 
-      -- Fallback option
-      if #bib_files == 0 then
-        table.insert(bib_files, {
-          path = "/home/skye/Documents/bibliography.bib/library.bib",
-          name = "All References",
-          display = "All References",
-        })
-      end
+        -- Add fallback option if it exists
+        if vim.fn.filereadable(fallback_file) == 1 then
+          table.insert(bib_files, {
+            path = fallback_file,
+            name = "All References",
+            display = "All References (Main Library)",
+          })
+        end
 
-      -- First, select the group
-      vim.ui.select(bib_files, {
-        prompt = "Select citation group:",
-        format_item = function(item)
-          return item.display
-        end,
-      }, function(selected_group)
-        if not selected_group then
+        if #bib_files == 0 then
+          vim.notify("No readable .bib files found", vim.log.levels.ERROR)
           return
         end
 
-        -- Then show citations from that group
+        -- First, select the group
+        vim.ui.select(bib_files, {
+          prompt = "Select citation group (Esc to cancel):",
+          format_item = function(item)
+            return item.display
+          end,
+        }, function(selected_group)
+          if not selected_group then
+            return -- User cancelled or pressed Escape
+          end
+          show_citations_from_group(selected_group)
+        end)
+      end
+
+      show_citations_from_group = function(selected_group)
+        -- Parse citations from the selected group
         local citations = {}
         local file = io.open(selected_group.path, "r")
 
@@ -361,26 +448,91 @@ return {
 
         local current_key = nil
         local current_title = nil
+        local current_author = nil
+        local current_year = nil
+        local current_keywords = nil
 
         for line in file:lines() do
           local key = line:match("^@%w+{([^,]+),")
           if key then
+            if current_key and (current_title or current_author) then
+              local display_info = current_title or current_author or "No title"
+              if current_year then
+                display_info = display_info .. " (" .. current_year .. ")"
+              end
+
+              table.insert(citations, {
+                key = current_key,
+                title = current_title or "No title",
+                author = current_author or "No author",
+                year = current_year or "",
+                keywords = current_keywords or "",
+                display = string.format("%s - %s", current_key, display_info),
+                search_text = string.lower(table.concat({
+                  current_key,
+                  current_title or "",
+                  current_author or "",
+                  current_year or "",
+                  current_keywords or "",
+                }, " ")),
+              })
+            end
             current_key = key
             current_title = nil
+            current_author = nil
+            current_year = nil
+            current_keywords = nil
           end
 
           local title = line:match("title%s*=%s*{(.-)}")
           if title and current_key then
-            current_title = title:gsub("^{", ""):gsub("}$", "")
-            table.insert(citations, {
-              key = current_key,
-              title = current_title,
-              display = current_key .. " - " .. current_title,
-            })
-            current_key = nil
-            current_title = nil
+            current_title = title:gsub("^{+", ""):gsub("}+$", "")
+          end
+
+          local author = line:match("author%s*=%s*{(.-)}")
+          if author and current_key and not current_author then
+            current_author = author:gsub("^{+", ""):gsub("}+$", ""):match("^([^,]+)")
+          end
+
+          -- Look for year
+          local year = line:match("year%s*=%s*{?(%d%d%d%d)}?") or line:match("year%s*=%s*(%d%d%d%d)")
+          if year and current_key then
+            current_year = year
+          end
+
+          -- Look for keywords
+          local keywords = line:match("keywords%s*=%s*{(.-)}")
+          if keywords and current_key then
+            keywords = keywords:gsub("^{+", ""):gsub("}+$", "")
+            keywords = keywords:gsub("[,;]", " ") -- Replace separators with spaces
+            current_keywords = keywords
           end
         end
+
+        -- Last entry
+        if current_key and (current_title or current_author) then
+          local display_info = current_title or current_author or "No title"
+          if current_year then
+            display_info = display_info .. " (" .. current_year .. ")"
+          end
+
+          table.insert(citations, {
+            key = current_key,
+            title = current_title or "No title",
+            author = current_author or "No author",
+            year = current_year or "",
+            keywords = current_keywords or "",
+            display = string.format("%s - %s", current_key, display_info),
+            search_text = string.lower(table.concat({
+              current_key,
+              current_title or "",
+              current_author or "",
+              current_year or "",
+              current_keywords or "",
+            }, " ")),
+          })
+        end
+
         file:close()
 
         if #citations == 0 then
@@ -388,24 +540,48 @@ return {
           return
         end
 
+        -- Add navigation option at the top
+        table.insert(citations, 1, {
+          key = "..back",
+          title = "",
+          author = "",
+          display = ".. (back to group selection)",
+          is_navigation = true,
+        })
+
         -- Show citations from selected group
         vim.ui.select(citations, {
-          prompt = "Select citation from " .. selected_group.name .. " (" .. #citations .. " available):",
+          prompt = string.format(
+            "Select citation from %s (%d available, Esc to go back):",
+            selected_group.name,
+            #citations - 1
+          ),
           format_item = function(item)
             return item.display
           end,
         }, function(choice)
-          if choice then
-            local citation = "\\cite{" .. choice.key .. "}"
-            vim.api.nvim_put({ citation }, "c", false, true)
-            vim.notify("Inserted: " .. citation .. " from " .. selected_group.name, vim.log.levels.INFO)
+          if not choice then
+            -- User pressed Escape - go back to group selection
+            show_group_selection()
+            return
           end
-        end)
-      end)
-    end
 
-    -- Make citation picker function globally accessible
-    _G.vimtex_pick_citation = pick_citation
+          if choice.is_navigation then
+            -- User selected the ".." option - go back to group selection
+            show_group_selection()
+            return
+          end
+
+          -- User selected a citation - insert it
+          local citation = "\\cite{" .. choice.key .. "}"
+          vim.api.nvim_put({ citation }, "c", false, true)
+          vim.notify("Inserted: " .. citation .. " from " .. selected_group.name, vim.log.levels.INFO)
+        end)
+      end
+
+      -- Start the process
+      show_group_selection()
+    end
 
     -- Set custom keymaps for LaTeX files
     vim.api.nvim_create_autocmd("FileType", {
@@ -413,18 +589,41 @@ return {
       callback = function()
         local opts = { buffer = true, silent = true }
 
-        -- VimTeX keymaps
-        vim.keymap.set(
-          "n",
-          "<leader>ll",
-          "<cmd>VimtexCompile<CR>",
-          vim.tbl_extend("force", opts, { desc = "Toggle LaTeX compilation" })
-        )
+        -- VimTeX keymaps with auto-combine bibliography
+        vim.keymap.set("n", "<leader>ll", function()
+          -- First, combine all group files into single library.bib with smarter duplicate removal
+          local group_dir = "/home/skye/Documents/mendeley_groups/"
+          local output_file = "/home/skye/Documents/library.bib"
+          local temp_file = "/tmp/combined_bibliography.bib"
+
+          -- Combine all .bib files, then remove duplicate entries (not just lines)
+          local combine_cmd = string.format(
+            "find %s -name '*.bib' -exec cat {} \\; > %s 2>/dev/null && "
+              .. 'awk \'BEGIN{RS="@"; ORS="@"} !seen[$0]++ && NF\' %s > %s && '
+              .. "sed -i '1s/^@//' %s && " -- Remove leading @ from first line
+              .. "mv %s %s && "
+              .. "echo 'Combined and deduplicated bibliography entries' || echo 'No group files found'",
+            vim.fn.shellescape(group_dir),
+            vim.fn.shellescape(temp_file),
+            vim.fn.shellescape(temp_file),
+            vim.fn.shellescape(temp_file .. "_clean"),
+            vim.fn.shellescape(temp_file .. "_clean"),
+            vim.fn.shellescape(temp_file .. "_clean"),
+            vim.fn.shellescape(output_file)
+          )
+
+          local result = vim.fn.system(combine_cmd)
+          vim.notify("Bibliography: " .. vim.trim(result), vim.log.levels.INFO)
+
+          -- Then proceed with normal compilation
+          vim.cmd("VimtexCompile")
+        end, vim.tbl_extend("force", opts, { desc = "Combine bibliography and compile LaTeX" }))
+
         vim.keymap.set(
           "n",
           "<leader>lv",
           "<cmd>VimtexView<CR>",
-          vim.tbl_extend("force", opts, { desc = "View PDF in external window (Okular)" })
+          vim.tbl_extend("force", opts, { desc = "View PDF in external window" })
         )
         vim.keymap.set(
           "n",
@@ -450,52 +649,25 @@ return {
           "<cmd>VimtexTocToggle<CR>",
           vim.tbl_extend("force", opts, { desc = "Toggle table of contents" })
         )
-        vim.keymap.set(
-          "n",
-          "<leader>lm",
-          "<cmd>VimtexImapsDisable<CR>",
-          vim.tbl_extend("force", opts, { desc = "Disable insert mode mappings" })
-        )
 
-        -- Custom PDF viewing options and citation picker
+        -- Custom PDF viewing options
         vim.keymap.set("n", "<leader>lp", function()
           open_pdf_in_tmux_pane(get_pdf_path())
         end, vim.tbl_extend("force", opts, { desc = "View PDF in tmux pane" }))
 
+        -- Citation pickers - now without conflict workarounds
         vim.keymap.set(
           "n",
-          "<leader>lw",
-          "<cmd>VimtexView<CR>",
-          vim.tbl_extend("force", opts, { desc = "View PDF in external window (same as <leader>lv)" })
+          "<leader>lz",
+          pick_citation_with_groups,
+          vim.tbl_extend("force", opts, { desc = "Citations with groups (all)" })
         )
-
-        -- Citation pickers with forced override for linter conflicts
-        vim.schedule(function()
-          -- Force clear any conflicting mappings that linters might set
-          pcall(vim.keymap.del, "n", "<leader>lz", { buffer = true })
-          pcall(vim.keymap.del, "n", "<leader>lg", { buffer = true })
-          pcall(vim.keymap.del, "n", "<leader>lG", { buffer = true })
-
-          -- Then immediately re-set our keymaps
-          vim.keymap.set(
-            "n",
-            "<leader>lz",
-            pick_citation,
-            vim.tbl_extend("force", opts, { desc = "Search and insert citation (original single file)" })
-          )
-          vim.keymap.set(
-            "n",
-            "<leader>lg",
-            pick_citation_with_groups,
-            vim.tbl_extend("force", opts, { desc = "Citations with groups (all)" })
-          )
-          vim.keymap.set(
-            "n",
-            "<leader>lG",
-            pick_citation_by_group,
-            vim.tbl_extend("force", opts, { desc = "Citations by group (select group first)" })
-          )
-        end)
+        vim.keymap.set(
+          "n",
+          "<leader>lg",
+          pick_citation_by_group,
+          vim.tbl_extend("force", opts, { desc = "Citations by group (select group first)" })
+        )
 
         -- Navigation
         vim.keymap.set(
@@ -504,7 +676,6 @@ return {
           "<cmd>VimtexSectionNext<CR>",
           vim.tbl_extend("force", opts, { desc = "Next section" })
         )
-
         vim.keymap.set(
           "n",
           "[[",
@@ -519,6 +690,30 @@ return {
         vim.keymap.set({ "x", "o" }, "i$", "<plug>(vimtex-i$)", opts)
         vim.keymap.set({ "x", "o" }, "ad", "<plug>(vimtex-ad)", opts)
         vim.keymap.set({ "x", "o" }, "id", "<plug>(vimtex-id)", opts)
+
+        -- Add latex-count keymap directly for both normal and visual modes
+        vim.keymap.set("n", "<leader>la", function()
+          require("skye.utils.latex-count").comprehensive_count()
+        end, vim.tbl_extend("force", opts, { desc = "LaTeX document analysis" }))
+
+        vim.keymap.set("v", "<leader>la", function()
+          -- Capture visual selection before exiting visual mode
+          local start_pos = vim.fn.getpos("v")
+          local end_pos = vim.fn.getpos(".")
+
+          -- Ensure start comes before end
+          if start_pos[2] > end_pos[2] or (start_pos[2] == end_pos[2] and start_pos[3] > end_pos[3]) then
+            start_pos, end_pos = end_pos, start_pos
+          end
+
+          local start_line = start_pos[2]
+          local start_col = start_pos[3]
+          local end_line = end_pos[2]
+          local end_col = end_pos[3]
+
+          -- Exit visual mode and call with selection bounds
+          require("skye.utils.latex-count").comprehensive_count_selection(start_line, end_line, start_col, end_col)
+        end, vim.tbl_extend("force", opts, { desc = "LaTeX selection analysis" }))
       end,
     })
   end,
