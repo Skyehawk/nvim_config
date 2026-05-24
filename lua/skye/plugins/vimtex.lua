@@ -664,7 +664,7 @@ return {
         )
         vim.keymap.set(
           "n",
-          "<leader>lg",
+          "<leader>lbg",
           pick_citation_by_group,
           vim.tbl_extend("force", opts, { desc = "Citations by group (select group first)" })
         )

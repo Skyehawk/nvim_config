@@ -3,7 +3,6 @@ return {
   priority = 1000,
   config = function()
     local transparent = true -- set to true if you would like to enable transparency
-
     local bg = "#011628"
     local bg_dark = "#011423"
     local bg_highlight = "#143652"
@@ -13,7 +12,6 @@ return {
     local fg_dark = "#B4D0E9"
     local fg_gutter = "#627E97"
     local border = "#547998"
-
     require("tokyonight").setup({
       style = "night",
       transparent = transparent,
@@ -39,7 +37,12 @@ return {
         colors.fg_sidebar = fg_dark
       end,
     })
-
     vim.cmd("colorscheme tokyonight")
+
+    -- Spell check highlighting (set after colorscheme loads)
+    vim.api.nvim_set_hl(0, "SpellBad", { undercurl = true, sp = "#f7768e" })
+    vim.api.nvim_set_hl(0, "SpellCap", { undercurl = true, sp = "#e0af68" })
+    vim.api.nvim_set_hl(0, "SpellRare", { undercurl = true, sp = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SpellLocal", { undercurl = true, sp = "#7dcfff" })
   end,
 }

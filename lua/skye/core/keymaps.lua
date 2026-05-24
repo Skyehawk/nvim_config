@@ -33,3 +33,10 @@ keymap.set("n", "<leader>tx", "<cmd>tabclose<CR>", { desc = "Close current tab" 
 keymap.set("n", "<leader>tn", "<cmd>tabn<CR>", { desc = "Go to next tab" }) --  go to next tab
 keymap.set("n", "<leader>tp", "<cmd>tabp<CR>", { desc = "Go to previous tab" }) --  go to previous tab
 keymap.set("n", "<leader>tf", "<cmd>tabnew %<CR>", { desc = "Open current buffer in new tab" }) --  move current buffer to new tab
+
+-- spell checking
+keymap.set("n", "<leader>sp", ":set spell!<CR>", { desc = "Toggle spell check" })
+keymap.set("n", "<leader>sa", "z=", { desc = "Spelling suggestions" })
+keymap.set("n", "<leader>sg", "zg", { desc = "Add word to dictionary" })
+keymap.set("n", "<leader>sb", "zw", { desc = "Mark word as bad" })
+keymap.set("n", "<leader>su", "zug", { desc = "Undo add to dictionary" })

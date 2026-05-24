@@ -1,6 +1,5 @@
 vim.cmd("let gLnetew_liststyle = 3")
 
-
 local opt = vim.opt -- for conciseness
 
 -- line numbers
@@ -43,3 +42,15 @@ opt.splitbelow = true -- split horizontal window to the bottom
 
 -- turn off swapfile
 opt.swapfile = false
+
+-- spell checking
+opt.spelllang = "en_us"
+opt.spellfile = vim.fn.stdpath("config") .. "/spell/en.utf-8.add"
+
+-- Enable spell check for specific filetypes
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "tex", "latex", "markdown", "text", "gitcommit" },
+  callback = function()
+    vim.opt_local.spell = true
+  end,
+})
